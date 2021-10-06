@@ -8,7 +8,7 @@ import re
 import mysql.connector
 
 BLOCK_SIZE = 65536 # Higher block size allows faster hashing, but more memory usage
-word_cache = set()
+active_files = {}
 
 def get_file_hash(file: str):
     file_hash = hashlib.sha256()
@@ -19,22 +19,21 @@ def get_file_hash(file: str):
             fb = f.read(BLOCK_SIZE)
     return file_hash
 
-def init_word_cache(file: str):
-    global word_cache
-    word_cache = set()
+def init_word_cache(file: str) -> set:
+    return_cache = set()
     with open(file, 'r') as f:
         for line in f:
-            word_cache.add(line.rstrip())
+            return_cache.add(line.rstrip())
+    return return_cache
             
-def update_word_cache(file: str) -> list:
+def update_word_cache(file: str, words: set) -> list:
     '''Updates the word cache and returns any new words added to the set'''
-    global word_cache
     new_cache = set()
     with open(file, 'r') as f:
         for line in f:
             new_cache.add(line.rstrip())
-        diff = new_cache.difference(word_cache)
-        word_cache = new_cache
+        diff = new_cache.difference(words)
+        words = new_cache
     return diff
 
 def get_any_word_in_set(data: str, words: set) -> str:
@@ -106,7 +105,7 @@ db_hostname = input("Enter the hostname of the SQL database: ")
 db_database = input("Enter the name of the database: ")
 db_user = input("Enter your username for the database: ")
 db_password = getpass.getpass("Enter your password for the database: ")
-file_path = input("Enter the filepath for the sensitive words list: ")
+folder_path = input("Enter the path for the folder containing the sensitive words files: ")
 
 print("Connecting to database...")
 db = mysql.connector.connect(
@@ -119,36 +118,55 @@ db = mysql.connector.connect(
 # check all words on startup
 print("Performing initial check")
 try:
-   last_modified = os.path.getmtime(file_path)
-   prev_hash = get_file_hash(file_path)
-   init_word_cache(file_path)
-   update_for_new_words(word_cache, db)
+    filenames = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+    for filename in filenames:
+        if filename.endswith(".txt"):
+            active_files[filename] = {"word_cache": set(), "last_modified": None, "prev_hash": None}
+            active_files[filename]["last_modified"] = os.path.getmtime(filename)
+            active_files[filename]["prev_hash"] = get_file_hash(filename)
+            active_files[filename]["word_cache"] = init_word_cache(filename)   
+            update_for_new_words(active_files[filename]["word_cache"], db)
 except FileNotFoundError as err:
-    print("File error: {0}".format(err))
-    exit()
+    print("File not found: {0}".format(err.filename))
     
 print("Initial check complete, listening for file updates...")
     
 while(1):
+    # scan existing files and update any removed ones
+    for filename, info in active_files.items():
+        try:
+            # compare modification date first to avoid unnecessary hash calculations
+            update_modified = os.path.getmtime(filename)
+            if update_modified != info["last_modified"]:
+                info["last_modified"] = update_modified
+                # compare hash to see if it actually changed
+                curr_hash = get_file_hash(filename)
+                if curr_hash.digest() != info["prev_hash"].digest(): 
+                    info["prev_hash"] = curr_hash
+                    print("Sensitive word list updated: {0}".format(filename))
+                    new_words = update_word_cache(filename, info["word_cache"])
+                    if len(new_words) > 0:
+                        update_for_new_words(new_words, db)
+        except FileNotFoundError as err:
+            print("File removed: {0}".format(err.filename))
+            active_files.pop(filename, None)
+            break
+        except KeyboardInterrupt:
+            print("Program ended by keyboard interrupt")
+            exit()
+        except:
+            print("Unexpected error:", sys.exc_info()[0])
+            raise
+    # scan for any new files and update them
     try:
-        # compare modification date first to avoid unnecessary hash calculations
-        update_modified = os.path.getmtime(file_path)
-        if update_modified != last_modified:
-            last_modified = update_modified
-            # compare hash to see if it actually changed
-            curr_hash = get_file_hash(file_path)
-            if curr_hash.digest() != prev_hash.digest(): 
-                prev_hash = curr_hash
-                print("Sensitive word list updated")
-                new_words = update_word_cache(file_path)
-                if len(new_words) > 0:
-                    update_for_new_words(new_words, db)
+        filenames = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+        for filename in filenames:
+            if filename.endswith(".txt") and filename not in active_files:
+                active_files[filename] = {"word_cache": set(), "last_modified": None, "prev_hash": None}
+                active_files[filename]["last_modified"] = os.path.getmtime(filename)
+                active_files[filename]["prev_hash"] = get_file_hash(filename)
+                active_files[filename]["word_cache"] = init_word_cache(filename)   
+                update_for_new_words(active_files[filename]["word_cache"], db)
+                print("File added: {0}".format(filename))
     except FileNotFoundError as err:
-        print("File error: {0}".format(err))
-        break
-    except KeyboardInterrupt:
-        print("Program ended by keyboard interrupt")
-        break
-    except:
-        print("Unexpected error:", sys.exc_info()[0])
-        raise
+        print("File not found: {0}".format(err.filename))
