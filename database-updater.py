@@ -105,7 +105,6 @@ db_hostname = input("Enter the hostname of the SQL database: ")
 db_database = input("Enter the name of the database: ")
 db_user = input("Enter your username for the database: ")
 db_password = getpass.getpass("Enter your password for the database: ")
-folder_path = input("Enter the path for the folder containing the sensitive words files: ")
 
 print("Connecting to database...")
 db = mysql.connector.connect(
@@ -114,6 +113,8 @@ db = mysql.connector.connect(
        password=db_password,
        database=db_database
    )
+
+folder_path = "./"
 
 # check all words on startup
 print("Performing initial check")
@@ -129,7 +130,7 @@ try:
 except FileNotFoundError as err:
     print("File not found: {0}".format(err.filename))
     
-print("Initial check complete, listening for file updates...")
+print("Initial check complete, listening for file updates in the root directory of the script...")
     
 while(1):
     # scan existing files and update any removed ones
@@ -170,3 +171,4 @@ while(1):
                 print("File added: {0}".format(filename))
     except FileNotFoundError as err:
         print("File not found: {0}".format(err.filename))
+        active_files.pop(filename, None)
