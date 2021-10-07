@@ -79,7 +79,7 @@ def update_for_new_words(words: list, db: any):
     ids_to_delete = []
     for row in db_cursor:
         # check the data for sensitive words
-        detected_word = get_any_word_in_set(row[6], words)
+        detected_word = get_any_word_in_set(row[5], words)
         if detected_word != "":
             ids_to_delete.append(row[0])
     if len(ids_to_delete) > 0:
@@ -117,7 +117,7 @@ db = mysql.connector.connect(
 folder_path = "./"
 
 # check all words on startup
-print("Performing initial check")
+print("Performing initial check...")
 try:
     filenames = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
     for filename in filenames:
