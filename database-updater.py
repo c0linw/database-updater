@@ -45,7 +45,7 @@ def get_any_word_in_set(data: str, words: set) -> str:
         if (not word.isascii()) and (word in data):
             return word
         # only evaluate word boundaries for ascii words
-        elif re.match(r"\b" + re.escape(word) + r"\b", data):
+        elif re.search(r"\b" + re.escape(word) + r"\b", data):
             return word
     return ""
 
